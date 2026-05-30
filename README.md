@@ -223,7 +223,7 @@ cargo run -p cli     # 対話エージェントの起動
 
 ## ロードマップ
 
-- [ ] `ConversationHistory` と基本の型（メッセージ・ツール呼び出し）
+- [x] `ConversationHistory` と基本の型（メッセージ・ツール呼び出し）
 - [ ] ツール実行ループの状態遷移（`Turn` ベース）
 - [ ] 対話ループの駆動と `LanguageModel` ポート
 - [ ] ローカルツールの実装と `ToolRegistry`
