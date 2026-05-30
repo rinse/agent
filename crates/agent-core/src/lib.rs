@@ -11,6 +11,14 @@
 //! - [`history`] … 不変に扱える会話履歴（[`ConversationHistory`]）
 //!
 //! 状態遷移（`StopReason` / `Turn` ベースのループ駆動）は後続タスクで追加する。
+//!
+//! # serde 表現について
+//!
+//! 各型は `serde` の既定（externally-tagged）で直列化する。これは**内部の永続化・
+//! ラウンドトリップ用途**には十分だが、実 LLM / MCP のワイヤ形式（例: Anthropic の
+//! `{"type":"tool_use", ...}`）とは一致しない。ワイヤ表現が必要になったら、コア型を
+//! 汚さずアダプタ側で変換するか、後続タスクで `#[serde(tag = "type", ...)]` 等の調整を
+//! 入れる。T1 のスコープでは既定表現のままとする。
 
 pub mod history;
 pub mod message;
