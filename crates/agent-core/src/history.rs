@@ -29,6 +29,11 @@ impl ConversationHistory {
     }
 
     /// メッセージを 1 件追加した**新しい履歴**を返す（関数型スタイル／元の履歴は不変）。
+    ///
+    /// 履歴を「状態 → 新しい状態」として組み立てたい場面（ターンの構築・テスト・
+    /// 分岐させて複数案を保持したいとき）で使う。一方、ループ内で同じ履歴へ繰り返し
+    /// 追記する経路では、毎回の move を避けられる [`ConversationHistory::push`] が向く。
+    /// 二系統あるのは用途の違いによるもので、得られる結果は等価。
     #[must_use]
     pub fn with(mut self, message: impl Into<Message>) -> Self {
         self.messages.push(message.into());

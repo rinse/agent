@@ -30,6 +30,18 @@ impl ToolUseId {
     }
 }
 
+impl From<String> for ToolUseId {
+    fn from(id: String) -> Self {
+        Self(id)
+    }
+}
+
+impl From<&str> for ToolUseId {
+    fn from(id: &str) -> Self {
+        Self(id.to_string())
+    }
+}
+
 impl std::fmt::Display for ToolUseId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
@@ -46,6 +58,12 @@ pub struct ToolCall {
     /// 呼び出すツール名。
     pub name: String,
     /// ツールへ渡す入力（任意の JSON 値）。
+    ///
+    /// コア型をあえて構造化せず [`serde_json::Value`] に留めるのは、LLM / MCP の
+    /// いずれもツール入力が本質的に JSON だから。入力をツールごとのスキーマに照らして
+    /// **検証する**のは、ツールを解決・実行するレイヤ（後続タスク）の責務とし、
+    /// ここでは構造化された値の運搬だけを担う。こうしておけば、後でスキーマ検証を
+    /// 足してもコア型は変えずに済む。
     pub input: serde_json::Value,
 }
 
@@ -121,6 +139,16 @@ mod tests {
         let id = ToolUseId::new("call_42");
         assert_eq!(id.as_str(), "call_42");
         assert_eq!(id.to_string(), "call_42");
+    }
+
+    #[test]
+    fn tool_use_id_from_str_and_string_match_new() {
+        let expected = ToolUseId::new("c1");
+        assert_eq!(ToolUseId::from("c1"), expected);
+        assert_eq!(ToolUseId::from("c1".to_string()), expected);
+        // `.into()` でも書ける（呼び出し側の取り回し用）。
+        let via_into: ToolUseId = "c1".into();
+        assert_eq!(via_into, expected);
     }
 
     #[test]
