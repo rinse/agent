@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::message::{AssistantMessage, Message, UserMessage};
+use crate::message::Message;
 
 /// 時系列に並んだメッセージ列。
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -41,18 +41,12 @@ impl ConversationHistory {
     }
 
     /// メッセージをその場で追加する（命令型スタイル）。
+    ///
+    /// `impl Into<Message>` を取るので、[`UserMessage`] / [`AssistantMessage`] を
+    /// そのまま渡せる（`From` 実装により [`Message`] へ変換される）。ロール別の
+    /// 薄いラッパは利用箇所が出てから必要に応じて足す方針とし、ここでは増やさない。
     pub fn push(&mut self, message: impl Into<Message>) {
         self.messages.push(message.into());
-    }
-
-    /// ユーザーメッセージをその場で追加する（[`ConversationHistory::push`] の薄いラッパ）。
-    pub fn push_user(&mut self, message: UserMessage) {
-        self.push(message);
-    }
-
-    /// アシスタントメッセージをその場で追加する。
-    pub fn push_assistant(&mut self, message: AssistantMessage) {
-        self.push(message);
     }
 
     /// メッセージ列を借用で取り出す。
@@ -99,7 +93,7 @@ impl FromIterator<Message> for ConversationHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::AssistantMessage;
+    use crate::message::{AssistantMessage, UserMessage};
 
     #[test]
     fn new_history_is_empty() {
@@ -135,8 +129,9 @@ mod tests {
     #[test]
     fn push_mutates_in_place() {
         let mut history = ConversationHistory::new();
-        history.push_user(UserMessage::text("hi"));
-        history.push_assistant(AssistantMessage::text("hello"));
+        // `push` は `impl Into<Message>` を取るので両ロールをそのまま渡せる。
+        history.push(UserMessage::text("hi"));
+        history.push(AssistantMessage::text("hello"));
         assert_eq!(history.len(), 2);
     }
 

@@ -192,7 +192,7 @@ agent/
 
 ### 必要環境
 
-- Rust（stable, edition 2021 以降）
+- Rust（stable, edition 2024 / rustc 1.85 以降）
 
 ### よく使うコマンド
 
