@@ -192,7 +192,7 @@ agent/
 
 ### 必要環境
 
-- Rust（stable, edition 2021 以降）
+- Rust（stable, edition 2024 / rustc 1.85 以降）
 
 ### よく使うコマンド
 
@@ -223,7 +223,7 @@ cargo run -p cli     # 対話エージェントの起動
 
 ## ロードマップ
 
-- [ ] `ConversationHistory` と基本の型（メッセージ・ツール呼び出し）
+- [x] `ConversationHistory` と基本の型（メッセージ・ツール呼び出し）
 - [ ] ツール実行ループの状態遷移（`Turn` ベース）
 - [ ] 対話ループの駆動と `LanguageModel` ポート
 - [ ] ローカルツールの実装と `ToolRegistry`
