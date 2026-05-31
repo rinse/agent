@@ -44,7 +44,7 @@ pub enum StopReason {
 /// 状態遷移は [`Turn::on_model_response`] / [`Turn::on_tools_completed`] の 2 関数に集約され、
 /// ありえない遷移はコンパイル時ではなく実行時（`Err` 値）として検出される。
 /// ループ駆動部がこれらを呼ぶ順序を守る限り `Err` は発生しない。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Turn {
     /// モデルへ問い合わせ中。応答待ち状態。
     AwaitingModel,
@@ -66,6 +66,9 @@ impl Turn {
         match self {
             Turn::AwaitingModel => match reason {
                 StopReason::EndTurn(msg) => Ok(Turn::Completed(msg)),
+                StopReason::ToolUse(calls) if calls.is_empty() => {
+                    Err(TurnError::EmptyToolUse)
+                }
                 StopReason::ToolUse(calls) => Ok(Turn::ExecutingTools(calls)),
                 StopReason::MaxTokens => Err(TurnError::MaxTokensReached),
                 StopReason::Cancelled => Err(TurnError::Cancelled),
@@ -112,7 +115,7 @@ impl Turn {
 }
 
 /// ターン状態遷移で発生するエラー。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TurnError {
     /// ありえない状態遷移（ループ駆動部のバグ）。
     InvalidTransition,
@@ -120,6 +123,8 @@ pub enum TurnError {
     MaxTokensReached,
     /// 外部キャンセル。
     Cancelled,
+    /// ToolUse に呼び出しが 1 件もない（モデルの不正応答）。
+    EmptyToolUse,
 }
 
 impl std::fmt::Display for TurnError {
@@ -128,6 +133,7 @@ impl std::fmt::Display for TurnError {
             TurnError::InvalidTransition => write!(f, "invalid state transition"),
             TurnError::MaxTokensReached => write!(f, "max tokens reached"),
             TurnError::Cancelled => write!(f, "cancelled"),
+            TurnError::EmptyToolUse => write!(f, "ToolUse stop reason contained no tool calls"),
         }
     }
 }
@@ -260,6 +266,20 @@ mod tests {
             .on_model_response(StopReason::EndTurn(AssistantMessage::text("done")))
             .unwrap();
         assert!(turn.is_completed());
+    }
+
+    #[test]
+    fn empty_tool_use_is_error() {
+        let result = Turn::AwaitingModel.on_model_response(StopReason::ToolUse(vec![]));
+        assert_eq!(result, Err(TurnError::EmptyToolUse));
+    }
+
+    #[test]
+    fn turn_serializes_and_deserializes() {
+        let turn = Turn::ExecutingTools(vec![make_call("c1")]);
+        let encoded = serde_json::to_string(&turn).unwrap();
+        let decoded: Turn = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(turn, decoded);
     }
 
     #[test]
