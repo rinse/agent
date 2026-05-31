@@ -1,14 +1,7 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! ポートの再エクスポート。
+//!
+//! ポート trait の定義は `agent-core/src/ports.rs` に置き、循環依存を回避している。
+//! このクレートはそれらを再エクスポートする薄いラッパ。
+//! ユーザーは `agent_core::ports::LanguageModel` でも `ports::LanguageModel` でも使える。
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use agent_core::ports::*;
