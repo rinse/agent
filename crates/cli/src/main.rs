@@ -1,18 +1,21 @@
+mod echo_model;
+
 use std::io::{self, BufRead, Write};
 
-use adapters::EchoLanguageModel;
 use agent_core::{
     message::{AssistantContent, UserMessage},
     ports::EmptyToolRegistry,
     ConversationHistory, TurnRunner,
 };
+use echo_model::EchoLanguageModel;
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runner = TurnRunner::new(EchoLanguageModel, EmptyToolRegistry);
     let mut history = ConversationHistory::new();
 
     let stdin = io::stdin();
+    let mut reader = stdin.lock();
     let mut stdout = io::stdout();
 
     println!("agent-cli (echo mode)");
@@ -21,10 +24,10 @@ async fn main() {
 
     loop {
         print!("you> ");
-        stdout.flush().unwrap();
+        stdout.flush()?;
 
         let mut line = String::new();
-        if stdin.lock().read_line(&mut line).unwrap() == 0 {
+        if reader.read_line(&mut line)? == 0 {
             break;
         }
         let input = line.trim_end();
@@ -51,4 +54,6 @@ async fn main() {
             Err(e) => eprintln!("error: {e}"),
         }
     }
+
+    Ok(())
 }
