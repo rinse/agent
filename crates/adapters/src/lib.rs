@@ -9,7 +9,7 @@ use std::{
 };
 
 use agent_core::{
-    message::{AssistantContent, AssistantMessage},
+    message::{AssistantContent, AssistantMessage, Message, UserContent},
     ports::{LanguageModel, ModelError, ModelResponse, Tool, ToolRegistry},
     tool::{ToolCall, ToolResult},
     turn::StopReason,
@@ -79,6 +79,40 @@ impl LanguageModel for FakeLanguageModel {
         Ok(ModelResponse {
             message,
             stop_reason,
+        })
+    }
+}
+
+// ─────────────────────────────────────────────
+// EchoLanguageModel
+// ─────────────────────────────────────────────
+
+/// ユーザーの最新テキストをオウム返しするデモ用モデル。
+///
+/// 常に `StopReason::EndTurn` を返すため、ツール実行ループには入らない。
+/// REPL の結合テストや CLI の動作確認に使う。
+pub struct EchoLanguageModel;
+
+#[async_trait]
+impl LanguageModel for EchoLanguageModel {
+    async fn complete(&self, history: &ConversationHistory) -> Result<ModelResponse, ModelError> {
+        let user_text = history
+            .messages()
+            .iter()
+            .rev()
+            .find_map(|msg| match msg {
+                Message::User(u) => u.content.iter().find_map(|c| match c {
+                    UserContent::Text(t) => Some(t.as_str()),
+                    _ => None,
+                }),
+                _ => None,
+            })
+            .unwrap_or("...");
+
+        let message = AssistantMessage::text(format!("Echo: {user_text}"));
+        Ok(ModelResponse {
+            stop_reason: StopReason::EndTurn(message.clone()),
+            message,
         })
     }
 }

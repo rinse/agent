@@ -4,3 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+agent-core = { path = "../agent-core" }
+adapters = { path = "../adapters" }
+tokio = { workspace = true }
