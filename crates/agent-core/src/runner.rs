@@ -19,7 +19,7 @@
 
 use crate::{
     message::{AssistantMessage, UserMessage},
-    ports::{LanguageModel, ModelError, ToolRegistry},
+    ports::{LanguageModel, ModelError, ModelResponse, ToolRegistry},
     tool::{ToolCall, ToolResult},
     turn::{Turn, TurnError},
     ConversationHistory,
@@ -41,7 +41,9 @@ pub enum RunError {
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RunError::Model(e) => write!(f, "model error: {e}"),
+            // ModelError::Display は既に "model error: {msg}" とフォーマットするため
+            // ここでプレフィックスを重複させない。
+            RunError::Model(e) => write!(f, "{e}"),
             RunError::Turn(e) => write!(f, "turn error: {e}"),
         }
     }
@@ -65,6 +67,9 @@ impl From<TurnError> for RunError {
 // TurnRunner
 // ─────────────────────────────────────────────
 
+/// デフォルトの最大ラウンド数。モデルが無限にツール要求を返し続けた場合の安全策。
+const DEFAULT_MAX_ROUNDS: usize = 128;
+
 /// 1 ターン（ツール実行ループ）を駆動する実行器。
 ///
 /// - `M`: [`LanguageModel`] 実装。
@@ -74,12 +79,24 @@ impl From<TurnError> for RunError {
 pub struct TurnRunner<M, R> {
     model: M,
     tools: R,
+    /// ループの最大反復回数。モデルがツール要求を返し続ける場合に打ち切る。
+    max_rounds: usize,
 }
 
 impl<M: LanguageModel, R: ToolRegistry> TurnRunner<M, R> {
-    /// 新しい `TurnRunner` を組み立てる。
+    /// 新しい `TurnRunner` を組み立てる。`max_rounds` は [`DEFAULT_MAX_ROUNDS`] になる。
     pub fn new(model: M, tools: R) -> Self {
-        Self { model, tools }
+        Self {
+            model,
+            tools,
+            max_rounds: DEFAULT_MAX_ROUNDS,
+        }
+    }
+
+    /// ループの最大反復回数を設定する（ビルダーパターン）。
+    pub fn with_max_rounds(mut self, max_rounds: usize) -> Self {
+        self.max_rounds = max_rounds;
+        self
     }
 
     /// `history` を文脈として 1 ターン分のツール実行ループを回す。
@@ -89,25 +106,31 @@ impl<M: LanguageModel, R: ToolRegistry> TurnRunner<M, R> {
     pub async fn run(&self, history: &mut ConversationHistory) -> Result<AssistantMessage, RunError> {
         let mut turn = Turn::AwaitingModel;
 
-        loop {
+        for _ in 0..self.max_rounds {
             turn = match turn {
                 Turn::AwaitingModel => {
-                    let response = self.model.complete(history).await?;
-                    // ツール使用時もアシスタントメッセージ全体（テキスト＋ツール要求）を履歴へ追記する。
-                    history.push(response.message.clone());
-                    Turn::AwaitingModel.on_model_response(response.stop_reason)?
+                    let ModelResponse { message, stop_reason } =
+                        self.model.complete(history).await?;
+                    history.push(message);
+                    Turn::AwaitingModel.on_model_response(stop_reason)?
                 }
 
                 Turn::ExecutingTools(calls) => {
                     // ツールを逐次実行する（並行実行は後続タスクで検討）。
                     let results = self.execute_calls(&calls).await;
                     history.push(UserMessage::tool_results(results));
-                    Turn::ExecutingTools(calls).on_tools_completed()?
+                    // `calls` を再構築せず直接遷移。match パターンにより
+                    // ExecutingTools 状態からしか到達しないことが保証されている。
+                    // on_tools_completed は &self を取るので状態チェックを経由することも
+                    // できるが、ここではパターンマッチの保証で十分と判断した。
+                    Turn::AwaitingModel
                 }
 
                 Turn::Completed(msg) => return Ok(msg),
             };
         }
+
+        Err(RunError::Turn(TurnError::MaxRoundsExceeded))
     }
 
     /// `calls` に含まれる各ツール呼び出しを逐次実行し、結果を収集する。
@@ -309,6 +332,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn max_rounds_exceeded_returns_error() {
+        // モデルが ToolUse を返し続けるシナリオ。max_rounds = 3 で打ち切られるか確認。
+        let call = make_call("c1", "loop_tool");
+        let model = FakeModel::scripted([
+            StopReason::ToolUse(vec![call.clone()]),
+            StopReason::ToolUse(vec![call.clone()]),
+            StopReason::ToolUse(vec![call.clone()]),
+            StopReason::ToolUse(vec![call.clone()]),
+        ]);
+        let runner = TurnRunner::new(model, EmptyToolRegistry).with_max_rounds(3);
+        let mut history = ConversationHistory::new().with(UserMessage::text("go"));
+
+        let err = runner.run(&mut history).await.unwrap_err();
+        assert!(matches!(
+            err,
+            RunError::Turn(TurnError::MaxRoundsExceeded)
+        ));
+    }
+
+    #[tokio::test]
     async fn tool_use_stop_reason_assistant_message_in_history() {
         let call = make_call("c1", "calc");
         let model = FakeModel::scripted([
@@ -329,5 +372,14 @@ mod tests {
         } else {
             panic!("expected Assistant at index 1");
         }
+    }
+
+    #[tokio::test]
+    async fn run_error_display_no_double_prefix() {
+        // RunError::Model の表示が "model error: model error: ..." のように二重にならないか確認。
+        let err = RunError::Model(ModelError::new("timeout"));
+        let s = err.to_string();
+        assert_eq!(s, "model error: timeout");
+        assert!(!s.contains("model error: model error:"));
     }
 }

@@ -32,8 +32,11 @@ use crate::{
 // ─────────────────────────────────────────────
 
 /// LLM 呼び出し時に発生するエラー。
+///
+/// 内部フィールドは `pub(crate)` に限定し、外部からは [`ModelError::new`] / `Display` / `Error`
+/// 経由のみでアクセスさせる。将来エラーコードやコンテキスト情報を追加しても破壊的変更にならない。
 #[derive(Debug)]
-pub struct ModelError(pub String);
+pub struct ModelError(pub(crate) String);
 
 impl ModelError {
     pub fn new(msg: impl Into<String>) -> Self {
@@ -58,6 +61,13 @@ impl std::error::Error for ModelError {}
 /// `message` と `stop_reason` を分けているのは、`ToolUse` 時にも生成されたアシスタント
 /// メッセージ全体（テキスト＋ツール使用要求）を会話履歴へ追記するため。
 /// `EndTurn` 時は `message` が [`StopReason::EndTurn`] 内の値と等価になる。
+///
+/// # 設計上の既知課題
+///
+/// `StopReason::EndTurn(AssistantMessage)` が既にメッセージを保持しているため、
+/// `EndTurn` 時に `message` フィールドとの間で不一致が生じるリスクがある。
+/// 将来的には `StopReason::EndTurn` からメッセージを取り除き、常に `message` フィールドを
+/// 使う方向への統一を検討すること。
 pub struct ModelResponse {
     /// アシスタントが生成したメッセージ全体。
     ///
