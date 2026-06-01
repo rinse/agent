@@ -82,8 +82,11 @@ impl Turn {
     /// ツール結果を [`crate::ConversationHistory`] へ追加するのはループ駆動部の責務であり、
     /// この純粋遷移関数はループ制御のみを担う。
     ///
+    /// `&self` を取るのは遷移に呼び出し一覧（`Vec<ToolCall>`）が不要なため。所有権を消費せずに
+    /// 状態チェックと次状態の生成ができる。
+    ///
     /// `ExecutingTools` 以外の状態から呼んだ場合は `Err(TurnError::InvalidTransition)`。
-    pub fn on_tools_completed(self) -> Result<Turn, TurnError> {
+    pub fn on_tools_completed(&self) -> Result<Turn, TurnError> {
         match self {
             Turn::ExecutingTools(_) => Ok(Turn::AwaitingModel),
             _ => Err(TurnError::InvalidTransition),
@@ -125,6 +128,8 @@ pub enum TurnError {
     Cancelled,
     /// ToolUse に呼び出しが 1 件もない（モデルの不正応答）。
     EmptyToolUse,
+    /// ツール実行ラウンドが上限に達した（モデルがツール要求を返し続けた）。
+    MaxRoundsExceeded,
 }
 
 impl std::fmt::Display for TurnError {
@@ -134,6 +139,7 @@ impl std::fmt::Display for TurnError {
             TurnError::MaxTokensReached => write!(f, "max tokens reached"),
             TurnError::Cancelled => write!(f, "cancelled"),
             TurnError::EmptyToolUse => write!(f, "ToolUse stop reason contained no tool calls"),
+            TurnError::MaxRoundsExceeded => write!(f, "max rounds exceeded"),
         }
     }
 }
