@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 agent-core = { path = "../agent-core" }
+adapters = { path = "../adapters" }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 

@@ -1,7 +1,10 @@
-//! フェイク実装。ユニットテストでポートを差し替えるために使う。
+//! アダプタ実装。ポート trait の具体実装を提供する。
 //!
-//! [`FakeLanguageModel`] と [`FakeToolRegistry`] / [`FakeTool`] を組み合わせれば、
-//! 実 LLM や外部プロセスなしにループ全体を決定的に検証できる。
+//! - [`openai`] … OpenAI 互換 API（LM Studio 等）を通じた LLM アダプタ
+//! - フェイク実装 … [`FakeLanguageModel`] / [`FakeToolRegistry`] / [`FakeTool`]（テスト用）
+
+pub mod echo;
+pub mod openai;
 
 use std::{
     collections::{HashMap, VecDeque},

@@ -1,26 +1,38 @@
-mod echo_model;
-
 use std::io::{self, BufRead, Write};
 
+use adapters::openai::OpenAiModel;
 use agent_core::{
     message::{AssistantContent, UserMessage},
     ports::EmptyToolRegistry,
     ConversationHistory, TurnRunner,
 };
-use echo_model::EchoLanguageModel;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let runner = TurnRunner::new(EchoLanguageModel, EmptyToolRegistry);
+    let base_url =
+        std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "http://localhost:1234/v1".into());
+    let model_name = std::env::var("OPENAI_MODEL").unwrap_or_default();
+
+    let mut model = OpenAiModel::new(&base_url, &model_name);
+
+    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+        model = model.with_api_key(key);
+    }
+    if let Ok(prompt) = std::env::var("SYSTEM_PROMPT") {
+        model = model.with_system_prompt(prompt);
+    }
+
+    let runner = TurnRunner::new(model, EmptyToolRegistry);
     let mut history = ConversationHistory::new();
 
     let stdin = io::stdin();
     let mut reader = stdin.lock();
     let mut stdout = io::stdout();
 
-    println!("agent-cli (echo mode)");
-    println!("Type \"exit\" to quit.");
-    println!();
+    eprintln!("agent-cli (model: {model_name})");
+    eprintln!("  base_url: {base_url}");
+    eprintln!("Type \"exit\" to quit.");
+    eprintln!();
 
     loop {
         print!("you> ");
