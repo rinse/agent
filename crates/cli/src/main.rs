@@ -11,7 +11,7 @@ use agent_core::{
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let base_url =
         std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "http://localhost:1234/v1".into());
-    let model_name = std::env::var("OPENAI_MODEL").unwrap_or_default();
+    let model_name = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "(default)".into());
 
     let mut model = OpenAiModel::new(&base_url, &model_name);
 

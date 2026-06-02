@@ -14,12 +14,24 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+/// モデルに送信するツール定義。
+///
+/// OpenAI 互換 API の `tools` パラメータに対応する。
+/// `parameters` は JSON Schema 形式で指定する。
+#[derive(Debug, Clone)]
+pub struct ToolDefinition {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+}
+
 pub struct OpenAiModel {
     client: Client,
     base_url: String,
     model: String,
     api_key: Option<String>,
     system_prompt: Option<String>,
+    tools: Vec<ToolDefinition>,
 }
 
 impl OpenAiModel {
@@ -30,6 +42,7 @@ impl OpenAiModel {
             model: model.into(),
             api_key: None,
             system_prompt: None,
+            tools: Vec::new(),
         }
     }
 
@@ -40,6 +53,11 @@ impl OpenAiModel {
 
     pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.system_prompt = Some(prompt.into());
+        self
+    }
+
+    pub fn with_tools(mut self, tools: Vec<ToolDefinition>) -> Self {
+        self.tools = tools;
         self
     }
 
@@ -80,7 +98,8 @@ impl OpenAiModel {
                     for result in tool_results {
                         let content = match &result.outcome {
                             ToolOutcome::Success(v) => {
-                                serde_json::to_string(v).unwrap_or_default()
+                                serde_json::to_string(v)
+                                    .expect("Value serialization is infallible")
                             }
                             ToolOutcome::Error(e) => format!("Error: {e}"),
                         };
@@ -106,7 +125,7 @@ impl OpenAiModel {
                                     function: OaiFunction {
                                         name: call.name.clone(),
                                         arguments: serde_json::to_string(&call.input)
-                                            .unwrap_or_default(),
+                                            .expect("Value serialization is infallible"),
                                     },
                                 });
                             }
@@ -136,9 +155,28 @@ impl LanguageModel for OpenAiModel {
     async fn complete(&self, history: &ConversationHistory) -> Result<ModelResponse, ModelError> {
         let messages = self.build_messages(history);
 
+        let tools = if self.tools.is_empty() {
+            None
+        } else {
+            Some(
+                self.tools
+                    .iter()
+                    .map(|t| OaiToolDefinition {
+                        tool_type: "function".into(),
+                        function: OaiToolFunction {
+                            name: t.name.clone(),
+                            description: t.description.clone(),
+                            parameters: t.parameters.clone(),
+                        },
+                    })
+                    .collect(),
+            )
+        };
+
         let request = ChatCompletionRequest {
             model: self.model.clone(),
             messages,
+            tools,
         };
 
         let url = format!(
@@ -180,7 +218,6 @@ fn parse_response(response: ChatCompletionResponse) -> Result<ModelResponse, Mod
         .ok_or_else(|| ModelError::new("empty choices in response"))?;
 
     let mut content = Vec::new();
-    let mut tool_calls = Vec::new();
 
     if let Some(text) = &choice.message.content {
         if !text.is_empty() {
@@ -190,15 +227,23 @@ fn parse_response(response: ChatCompletionResponse) -> Result<ModelResponse, Mod
 
     if let Some(calls) = choice.message.tool_calls {
         for call in calls {
-            let input: serde_json::Value = serde_json::from_str(&call.function.arguments)
-                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-            let tc = ToolCall::new(ToolUseId::new(call.id), call.function.name, input);
-            content.push(AssistantContent::ToolUse(tc.clone()));
-            tool_calls.push(tc);
+            let input: serde_json::Value =
+                serde_json::from_str(&call.function.arguments).map_err(|e| {
+                    ModelError::new(format!(
+                        "failed to parse tool arguments for '{}': {e}",
+                        call.function.name
+                    ))
+                })?;
+            content.push(AssistantContent::ToolUse(ToolCall::new(
+                ToolUseId::new(call.id),
+                call.function.name,
+                input,
+            )));
         }
     }
 
     let message = AssistantMessage { content };
+    let tool_calls: Vec<ToolCall> = message.tool_calls().cloned().collect();
 
     let finish_reason = choice.finish_reason.unwrap_or_default();
     let stop_reason = match finish_reason.as_str() {
@@ -227,6 +272,22 @@ fn parse_response(response: ChatCompletionResponse) -> Result<ModelResponse, Mod
 struct ChatCompletionRequest {
     model: String,
     messages: Vec<ChatMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<OaiToolDefinition>>,
+}
+
+#[derive(Serialize)]
+struct OaiToolDefinition {
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: OaiToolFunction,
+}
+
+#[derive(Serialize)]
+struct OaiToolFunction {
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
 }
 
 #[derive(Serialize)]
@@ -427,5 +488,84 @@ mod tests {
     fn empty_choices_is_error() {
         let response = ChatCompletionResponse { choices: vec![] };
         assert!(parse_response(response).is_err());
+    }
+
+    #[test]
+    fn invalid_tool_arguments_returns_error() {
+        let response = ChatCompletionResponse {
+            choices: vec![Choice {
+                message: ResponseMessage {
+                    content: None,
+                    tool_calls: Some(vec![OaiToolCall {
+                        id: "c1".into(),
+                        call_type: "function".into(),
+                        function: OaiFunction {
+                            name: "search".into(),
+                            arguments: "not valid json".into(),
+                        },
+                    }]),
+                },
+                finish_reason: Some("tool_calls".into()),
+            }],
+        };
+        let result = parse_response(response);
+        assert!(result.is_err());
+        assert!(result.err().unwrap().to_string().contains("search"));
+    }
+
+    #[test]
+    fn request_includes_tools_when_defined() {
+        let tools = vec![ToolDefinition {
+            name: "search".into(),
+            description: "Search the web".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string" }
+                },
+                "required": ["query"]
+            }),
+        }];
+        let model = OpenAiModel::new("http://localhost:1234/v1", "test").with_tools(tools);
+
+        // tools フィールドを含むリクエストが構築されることをシリアライズで検証
+        let history = ConversationHistory::new().with(UserMessage::text("hi"));
+        let messages = model.build_messages(&history);
+        let oai_tools: Vec<OaiToolDefinition> = model
+            .tools
+            .iter()
+            .map(|t| OaiToolDefinition {
+                tool_type: "function".into(),
+                function: OaiToolFunction {
+                    name: t.name.clone(),
+                    description: t.description.clone(),
+                    parameters: t.parameters.clone(),
+                },
+            })
+            .collect();
+        let request = ChatCompletionRequest {
+            model: "test".into(),
+            messages,
+            tools: Some(oai_tools),
+        };
+        let json = serde_json::to_value(&request).unwrap();
+        let tools_arr = json["tools"].as_array().unwrap();
+        assert_eq!(tools_arr.len(), 1);
+        assert_eq!(tools_arr[0]["type"], "function");
+        assert_eq!(tools_arr[0]["function"]["name"], "search");
+    }
+
+    #[test]
+    fn request_omits_tools_when_empty() {
+        let model = OpenAiModel::new("http://localhost:1234/v1", "test");
+        let history = ConversationHistory::new().with(UserMessage::text("hi"));
+        let messages = model.build_messages(&history);
+        let request = ChatCompletionRequest {
+            model: "test".into(),
+            messages,
+            tools: None,
+        };
+        let json = serde_json::to_value(&request).unwrap();
+        assert!(json.get("tools").is_none());
     }
 }
