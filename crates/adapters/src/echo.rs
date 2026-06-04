@@ -1,3 +1,8 @@
+//! ユーザーの最新テキストをオウム返しするデモ用モデル。
+//!
+//! 常に `StopReason::EndTurn` を返すため、ツール実行ループには入らない。
+//! REPL の動作確認やテストに使う。
+
 use agent_core::{
     message::{AssistantMessage, Message, UserContent},
     ports::{LanguageModel, ModelError, ModelResponse},
@@ -6,10 +11,6 @@ use agent_core::{
 };
 use async_trait::async_trait;
 
-/// ユーザーの最新テキストをオウム返しするデモ用モデル。
-///
-/// 常に `StopReason::EndTurn` を返すため、ツール実行ループには入らない。
-/// REPL の動作確認に使う。
 pub struct EchoLanguageModel;
 
 #[async_trait]
